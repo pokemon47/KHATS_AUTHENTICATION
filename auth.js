@@ -324,3 +324,13 @@ app.put('/khats/auth/checkToken', async (req, res) => {
         return res.json({"status": 200, "isValid": false});
     }
 });
+
+app.get('/khats/auth/getCred', async (req, res) => {
+    const { authorization } = req.headers;
+    const userCred = getUserObjectFromToken(authorization)
+    if (!userCred) {
+        return {"status": 400, "error": "Invalid token given"};
+    } else {
+        return {"status": 200, "credObject": userCred};
+    }
+});
