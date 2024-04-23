@@ -191,7 +191,7 @@ const eggsLoginCall = async (userName, password) => {
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////// OUR FUNCTIONS /////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-const register = (nameFirst, nameLast, email, phone, password1, password2, isCustomer) => {
+const register = (nameFirst, nameLast, email, phone, password1, password2) => {
   const username = uuidv4();
   console.log('got called to register');
   if (password1 !== password2) {
@@ -228,7 +228,6 @@ const register = (nameFirst, nameLast, email, phone, password1, password2, isCus
           "passwordHash": callResults[2],
           "boostToken": callResults[0].token,
           "eggsUId": callResults[1].uid,
-          "isCustomer": isCustomer,
           "files": {},
           "madeOn": accountCreationDate,
           "sendStats": [{ "date": accountCreationDate, "revenue": 0 }]
@@ -280,10 +279,11 @@ const logout = (token) => {
       return {"status": 200, "error": "Logged out succesfully"}
   }
 }
-const renderFile = async (file, token) => {
+const renderFile = async (fileId, token) => {
   const formData = new FormData();
-  console.log(file);
+//   console.log(file);
   // formData.append("file", file);
+  const file = getUserObjectFromToken(token).files[fileId]
   formData.append('file', file.buffer, {
       filename: file.originalname,
       contentType: file.mimetype
@@ -305,8 +305,8 @@ const renderFile = async (file, token) => {
           console.log('There was an error getting the results');
           console.log(result_1.error);
       }
-      console.log('Got the results successfully ', token);
-      console.log('The pdf link ', result_1.PDFURL);
+    //   console.log('Got the results successfully ', token);
+    //   console.log('The pdf link ', result_1.PDFURL);
       return (result_1.PDFURL);
   } catch (error) {
       return console.error(error);
@@ -365,6 +365,14 @@ function createInvoice(invoiceData, userCred) {
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////// OUR API ROUTES ////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+app.use((req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*'); // Allowing all origins (not recommended for production)
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Credentials', 'true'); // If cookies are needed
+    next();
+});
+
 app.get('/', (req, res) => {
   res.json({
       "msg": `hello world, KHATS here`,
@@ -373,8 +381,8 @@ app.get('/', (req, res) => {
 
 // Authentication
 app.post('/khats/auth/register', async (req, res) => {
-  const { nameFirst, nameLast, email, number, password1, password2, isCustomer } = req.body;
-  return res.json(await register(nameFirst, nameLast, email, number, password1, password2, isCustomer));
+  const { nameFirst, nameLast, email, number, password1, password2 } = req.body;
+  return res.json(await register(nameFirst, nameLast, email, number, password1, password2 ));
 });
 
 app.post('/khats/auth/login', async (req, res) => {
@@ -457,7 +465,7 @@ app.post('/khats/renderInvoice', upload.single('file'), async (req, res) => {
   if (!userCred) {
       return res.json({"status": 400, "error": "Invalid token given"});
   }
-  const PDFURL = await renderFile(req.file, userCred.boostToken)
+  const PDFURL = await renderFile(req.fileId, userCred.boostToken)
   return res.json({"status": 200, "url": PDFURL});
 })
 // send stuff
@@ -506,9 +514,9 @@ const totalValue = (file) => {
       const xmlDoc = parser.parseFromString(result.xmlString, "text/xml");
       const taxExclusiveAmount = xmlDoc.getElementsByTagName("cbc:TaxExclusiveAmount")[0].textContent;
       const taxInclusiveAmount = xmlDoc.getElementsByTagName("cbc:TaxInclusiveAmount")[0].textContent;
-      console.log("Tax exclusive amount:", taxExclusiveAmount);
-      console.log("Tax Amount:", (taxInclusiveAmount - taxExclusiveAmount) + '');
-      console.log("Tax inclusive amount:", taxInclusiveAmount);
+    //   console.log("Tax exclusive amount:", taxExclusiveAmount);
+    //   console.log("Tax Amount:", (taxInclusiveAmount - taxExclusiveAmount) + '');
+    //   console.log("Tax inclusive amount:", taxInclusiveAmount);
   })
   .catch(error => {
       console.error("Error:", error);

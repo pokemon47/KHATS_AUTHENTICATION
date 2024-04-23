@@ -9,7 +9,7 @@ const app = express();
 // import { v4 as uuidv4 } from 'uuid';
 const { v4: uuidv4 } = require('uuid');
 // const port = 3001;
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 3001;
 app.use(express.json());
 app.listen(port, () => {
     console.log(`listening to port ${port}`);
@@ -22,6 +22,14 @@ const saltRounds = 10;
 const db = require(DATABASE_FILE) // create a `db.json` file that contains {}
 if(!db.users) db.users = {} // initialize an array, if you want db.users to be an array
 if(!db.sessions) db.sessions  = [] // initialize an array, if you want db.users to be an array
+
+app.use((req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*'); // Allowing all origins (not recommended for production)
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Credentials', 'true'); // If cookies are needed
+    next();
+});
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -33,7 +41,7 @@ function AppDateManagement() {
     const timeUntilNextDay = nextDay.getTime() - currentDate.getTime();
     setInterval(() => {
         // console.log("This will be printed once a day");
-        Object.values(db.user).forEach((user) => {
+        Object.values(db.users).forEach((user) => {
             const recentStat = user.sendStats[user.sendStats.length - 1];
             recentStat.data = nextDay;
             user.sendStats.push(recentStat);
@@ -424,11 +432,15 @@ app.post('/khats/renderInvoice', upload.single('file'), async (req, res) => {
     if (!userCred) {
         return res.json({"status": 400, "error": "Invalid token given"});
     }
-    const PDFURL = await renderFile(req.file, userCred.boostToken)
+    const PDFURL = await renderFile(req.file, userCred.boostToken, authorization)
     return res.json({"status": 200, "url": PDFURL});
 })
-const renderFile = async (file, token) => {
+const renderFile = async (fileId, boostToken, ourtoken) => {
     const formData = new FormData();
+    // formData.append("file", file);
+    const userObject = getUserObjectFromToken(ourtoken);
+    console.log('render ', userObject);
+    const file = userObject.files[fileId]
     console.log(file);
     // formData.append("file", file);
     formData.append('file', file.buffer, {
@@ -437,7 +449,7 @@ const renderFile = async (file, token) => {
     });
     formData.append("outputType", "PDF");
     formData.append("language", "en");
-    formData.append("token", token);
+    formData.append("token", boostToken);
     
     const requestOptions = {
         method: "POST",
@@ -614,7 +626,6 @@ function createInvoice(invoiceData, userCred) {
             mimetype: 'application/xml',
             buffer: Buffer.from(result),
         };
-        // const PDFURL = await renderFile(multerFile, userCred.boostToken)
         saveFile(userCred.email, multerFile, false)
         console.log('added to the datastore successfully');
     })
