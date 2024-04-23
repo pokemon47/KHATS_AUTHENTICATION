@@ -1,6 +1,7 @@
 const express = require('express');
 const fetch = require('node-fetch');
 const multer = require('multer');
+const { DOMParser } = require('xmldom');
 // const fetch = require('node-fetch');
 const FormData = require('form-data');
 // const FormData = require('form-data');
@@ -15,12 +16,64 @@ app.listen(port, () => {
 });
 const DATABASE_FILE = './database.json';
 
-const myPass = 'heyThere#9000';
+// const myPass = 'heyThere#9000';
 const saltRounds = 10;
 
 const db = require(DATABASE_FILE) // create a `db.json` file that contains {}
-if(!db.users) db.users = [] // initialize an array, if you want db.users to be an array
-if(!db.sessions) db.sessions = [] // initialize an array, if you want db.users to be an array
+if(!db.users) db.users = {} // initialize an array, if you want db.users to be an array
+if(!db.sessions) db.sessions  = [] // initialize an array, if you want db.users to be an array
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+function AppDateManagement() {
+    const currentDate = new Date();
+    const millisecondsInDay = 24 * 60 * 60 * 1000;
+    const nextDay = new Date(currentDate.getTime() + millisecondsInDay);
+    nextDay.setHours(0, 0, 0, 0);
+    const timeUntilNextDay = nextDay.getTime() - currentDate.getTime();
+    setInterval(() => {
+        // console.log("This will be printed once a day");
+        Object.values(db.user).forEach((user) => {
+            const recentStat = user.sendStats[user.sendStats.length - 1];
+            recentStat.data = nextDay;
+            user.sendStats.push(recentStat);
+        })
+        save();
+    }, timeUntilNextDay);
+}
+AppDateManagement();
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// force data base reset and stuff
+// ONLY FOR ADMIN
+app.put('/khats/forceData', async (req, res) => {
+    const { userObject } = req.body;
+    if (getUserObjectFromEmail(userObject.email) === null) {
+        return {"status": 400, "error": "The email given is not a registered email"}
+    }
+    db.users[userObject.email] = userObject;
+    save()
+    return res.json({"status": 200, "message": "Successfully forced data"});
+});
+app.put('/khats/forceData/sendStats', async (req, res) => {
+    const { email, sendStatsArr } = req.body;
+    if (getUserObjectFromEmail(email) === null) {
+        return {"status": 400, "error": "The email given is not a registered email"}
+    }
+    db.users[userObject.email].sendStats = sendStatsArr;
+    save()
+    return res.json({"status": 200, "message": "Successfully forced sensStats data"});
+});
+app.delete('/khats/resetDatastore', async (req, res) => {
+    db = {"users": {}, "sessions": []};
+    save()
+    return res.json({"status": 200, "message": "Successfully restored dataStore"});
+});
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// if (!db.files) db.files = {};
 const upload = multer({ storage: multer.memoryStorage() });
 const fs = require("fs");
 const bcrypt = require('bcrypt');
@@ -28,17 +81,16 @@ const bcrypt = require('bcrypt');
 const save = () => fs.writeFile(DATABASE_FILE, JSON.stringify(db), () => {})
 
 const getUserObjectFromEmail = (email) => {
-    for (elm of db.users) {
-        if (elm.email === email) {
-            return elm;
-        }
-    }
-    return null
+    return db.users[email]
 }
 const getUserObjectFromToken = (token) => {
+    if (checkTokenValid(token) === false) {
+        console.log('exiting here, invalid token');
+        return null
+    }
     for (elm of db.sessions) {
         if (elm.token === token) {
-            return getUserObjectFromEmail(elm.email);
+            return db.users[elm.email];
         }
     }
     return null
@@ -47,10 +99,7 @@ const checkTokenValid = (token) => {
     const remove = [];
     let valid = false;
     const currentTime = new Date();
-    // console.log('the sessions', db.sessions)
     for (elm of db.sessions) {
-        // console.log('current time', currentTime)
-        // console.log('expiry time ', new Date(elm.expires))
         let expiryTime = new Date(elm.expires)
         if (expiryTime < currentTime) {
             remove.push(db.sessions.indexOf(elm));
@@ -59,7 +108,9 @@ const checkTokenValid = (token) => {
             valid = true;
         }
     }
-    remove.forEach((idx) => {db.sessions.splice(idx, 1)});
+    remove.forEach((idx) => {
+        db.sessions.splice(idx, 1)
+    });
     save();
     return valid;
 }
@@ -78,10 +129,71 @@ const hasher = (password) => {
         return hash;
     });
 }
-
-
-
-
+const saveFile = (email, file, isValidated) => {
+    const newFile = {
+        id:  uuidv4(),
+        file,
+        isValidated,
+        sentTo : [],
+        madeOn : new Date(),
+    }
+    db.users[email].files[newFile.id] = newFile;
+    save();
+}
+app.get('/khats/getAllFileIds', async (req, res) => {
+    const { authorization } = req.headers;
+    const userCred = getUserObjectFromToken(authorization)
+    if (!userCred) {
+        return res.json({"status": 400, "error": "Invalid token given"});
+    }
+    const fileIds = Object.keys(db.user.files)
+    return res.json({"status": 200, "fileIds": fileIds});
+})
+app.get('/khats/getFile', async (req, res) => {
+    const { authorization, fileId } = req.headers;
+    const userCred = getUserObjectFromToken(authorization)
+    if (!userCred) {
+        return res.json({"status": 400, "error": "Invalid token given"});
+    }
+    const file = db.user.files[fileId]
+    if (!file) {
+        return res.json({"status": 400, "error": "File id does not match any files"});
+    }
+    return res.json({"status": 200, "file": file});
+})
+app.get('/khats/getFileContent', async (req, res) => {
+    const { authorization, fileId } = req.headers;
+    const userCred = getUserObjectFromToken(authorization)
+    if (!userCred) {
+        return res.json({"status": 400, "error": "Invalid token given"});
+    }
+    const file = db.user.files[fileId]
+    if (!file) {
+        return res.json({"status": 400, "error": "File id does not match any files"});
+    }
+    const fileContent = await getFileContent(file)
+    return res.json({"status": 200, "fileContent": fileContent});
+})
+app.put('/khats/updateFile', async (req, res) => {
+    const { authorization, fileId } = req.headers;
+    const userCred = getUserObjectFromToken(authorization)
+    if (!userCred) {
+        return res.json({"status": 400, "error": "Invalid token given"});
+    }
+    const file = db.user.files[fileId]
+    if (!file) {
+        return res.json({"status": 400, "error": "File id does not match any files"});
+    }
+    const newFile = {
+        fieldname: 'xml_file',
+        originalname: 'invoice.xml',
+        encoding: 'utf-8',
+        mimetype: 'application/xml',
+        buffer: Buffer.from(req.body.invoiceData),
+    };
+    saveFile(userCred.email, newFile, false);
+    return res.json({"status": 200, "message": "successfully updated the file"});
+})
 const boostRegisterCall = async (nameFirst, nameLast, email, password) => {
     try {
         const response = await fetch('http://rendering.ap-southeast-2.elasticbeanstalk.com/user/register', {
@@ -172,7 +284,7 @@ const register = (nameFirst, nameLast, email, phone, password1, password2, isCus
     console.log('got called to register');
     if (password1 !== password2) {
         return {"status": 400, "error": "The two passwords do not match"}
-    } else if (getUserObjectFromEmail(email) !== null) {
+    } else if (getUserObjectFromEmail(email)) {
         return {"status": 400, "error": "Email has already been used"}
     } else if ((typeof phone) !== "string" || phone.length !== 10) {
         return {"status": 400, "error": "invalid phone"}
@@ -193,6 +305,8 @@ const register = (nameFirst, nameLast, email, phone, password1, password2, isCus
         } else if (!callResults[1].uid) {
             return {"status": 400, "error": callResults[1].message};
         }
+        const accountCreationDate = new Date ();
+        accountCreationDate.setHours(0,0,0,0);
         const userCreds = {
             "nameFirst": nameFirst, 
             "nameLast": nameLast, 
@@ -202,11 +316,14 @@ const register = (nameFirst, nameLast, email, phone, password1, password2, isCus
             "passwordHash": callResults[2],
             "boostToken": callResults[0].token,
             "eggsUId": callResults[1].uid,
-            "isCustomer": isCustomer
+            "isCustomer": isCustomer,
+            "files": {},
+            "madeOn": accountCreationDate,
+            "sendStats": [{ "date": accountCreationDate, "revenue": 0 }]
         };
         console.log(userCreds);
         
-        db.users.push(userCreds);
+        db.users[userCreds.email] = userCreds;
         const userSession = {
             "email": email,
             "token": uuidv4(),
@@ -219,7 +336,7 @@ const register = (nameFirst, nameLast, email, phone, password1, password2, isCus
 }
 
 const login = async (email, password) => {
-    const userCreds = getUserObjectFromEmail(email);
+    const userCreds = db.users[email];
     if (!userCreds) {
         return {"status": 400, "error": "Email does not match any registered emails"}
     }
@@ -341,7 +458,7 @@ const renderFile = async (file, token) => {
     } catch (error) {
         return console.error(error);
     }
-  }
+}
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////// SENDING /////////////////////////////////////////////////////
@@ -414,4 +531,92 @@ const sendInvoiceEmailLaterV2 = async (senderUserName, recipientEmail, fileConte
         console.error(error);
         return error;
     } 
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+app.post('/khats/taxExclusive', upload.array('files'), async (req, res) => {
+    const { authorization } = req.headers;
+    const userCred = getUserObjectFromToken(authorization)
+    console.log(userCred);
+    if (!userCred) {
+        return res.json({"status": 400, "error": "Invalid token given"});
+    }
+    for (const file of req.files) {
+        totalValue(file);
+    }
+    return res.json({"status": 200, "message": "testing"});
+})
+
+const totalValue = (file) => {
+    getFileContent(file)
+    .then(result => {
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(result.xmlString, "text/xml");
+        const taxExclusiveAmount = xmlDoc.getElementsByTagName("cbc:TaxExclusiveAmount")[0].textContent;
+        const taxInclusiveAmount = xmlDoc.getElementsByTagName("cbc:TaxInclusiveAmount")[0].textContent;
+        console.log("Tax exclusive amount:", taxExclusiveAmount);
+        console.log("Tax Amount:", (taxInclusiveAmount - taxExclusiveAmount) + '');
+        console.log("Tax inclusive amount:", taxInclusiveAmount);
+    })
+    .catch(error => {
+        console.error("Error:", error);
+    });
+}
+function getFileContent(file) {
+    return new Promise((resolve, reject) => {
+        const content = file.buffer.toString('utf8');
+        resolve({"xmlString": content, "filename": file.originalname});
+    });
+}
+
+function addToSendStats(email, amount) {
+    const userObject = db.users[email];
+    userObject.sendStats[userObject.sendStats.length - 1].revenue += amount;
+    db.users[email] = userObject;
+    save();
+}
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////// Creation /////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+app.post('/khats/createInvoice', async (req, res) => {
+    const { authorization } = req.headers;
+    const userCred = getUserObjectFromToken(authorization)
+    if (!userCred) {
+        return res.json({"status": 400, "error": "Invalid token given"});
+    }
+    const { invoiceData } = req.body;
+    // const response = await sendInvoiceEmailLaterV2(userCred.username, recipient, xmlFiles, delayInMinutes)
+    createInvoice(invoiceData, userCred);
+    return res.json({"status": 200, "message": "successfully created and added a new invoice"});
+})
+
+function createInvoice(invoiceData, userCred) {
+    const raw = JSON.stringify(invoiceData);
+    const requestOptions = {
+        method: "POST",
+        headers: {
+            'Content-type': 'application/json'
+        },
+        body: raw,
+        redirect: "follow"
+    };
+
+    fetch("https://w13a-brownie.vercel.app/v2/api/invoice/create", requestOptions)
+    .then((response) => response.text())
+    .then(async (result) => {
+        // console.log(result)
+        const multerFile = {
+            fieldname: 'xml_file',
+            originalname: 'invoice.xml',
+            encoding: 'utf-8',
+            mimetype: 'application/xml',
+            buffer: Buffer.from(result),
+        };
+        // const PDFURL = await renderFile(multerFile, userCred.boostToken)
+        saveFile(userCred.email, multerFile, false)
+        console.log('added to the datastore successfully');
+    })
+    .catch((error) => console.error(error));
 }
