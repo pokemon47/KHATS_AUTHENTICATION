@@ -425,23 +425,27 @@ app.get('/khats/auth/checkToken', async (req, res) => {
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////// RENDERING /////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-app.post('/khats/renderInvoice', upload.single('file'), async (req, res) => {
+app.post('/khats/renderInvoice', async (req, res) => {
     const { authorization } = req.headers;
+    const fileId = req.body.fileId
+    // console.log( authorization, fileId)
     const userCred = getUserObjectFromToken(authorization)
     console.log(userCred);
     if (!userCred) {
         return res.json({"status": 400, "error": "Invalid token given"});
     }
-    const PDFURL = await renderFile(req.file, userCred.boostToken, authorization)
+    const userObject = getUserObjectFromToken(authorization);
+    const file = userObject.files[fileId].file
+    const PDFURL = await renderFile(file, userCred.boostToken)
     return res.json({"status": 200, "url": PDFURL});
 })
-const renderFile = async (fileId, boostToken, ourtoken) => {
+const renderFile = async (file, boostToken) => {
     const formData = new FormData();
     // formData.append("file", file);
-    const userObject = getUserObjectFromToken(ourtoken);
-    console.log('render ', userObject);
-    const file = userObject.files[fileId]
-    console.log(file);
+    // const userObject = getUserObjectFromToken(ourtoken);
+    // console.log('render ', userObject);
+    // const file = userObject.files[fileId].file
+    // console.log(file);
     // formData.append("file", file);
     formData.append('file', file.buffer, {
         filename: file.originalname,
@@ -464,7 +468,6 @@ const renderFile = async (fileId, boostToken, ourtoken) => {
             console.log('There was an error getting the results');
             console.log(result_1.error);
         }
-        console.log('Got the results successfully ', token);
         console.log('The pdf link ', result_1.PDFURL);
         return (result_1.PDFURL);
     } catch (error) {
