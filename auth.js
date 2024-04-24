@@ -122,7 +122,7 @@ const checkTokenValid = (token) => {
         if (expiryTime >= currentTime && elm.token === token) {
             // elm.expires = renewedTime;
             console.log(expiryTime)
-            elm.expires = renewedTime;
+            // elm.expires = renewedTime;
             db.sessions[db.sessions.indexOf(elm)] = elm;
             
             valid = true;
