@@ -22,7 +22,7 @@ const saltRounds = 10;
 
 const db = require(DATABASE_FILE) // create a `db.json` file that contains {}
 if(!db.users) db.users = {} // initialize an array, if you want db.users to be an array
-if(!db.sessions) db.sessions  = [] // initialize an array, if you want db.users to be an array
+if(!db.sessions) db.sessions  = {} // initialize an array, if you want db.users to be an array
 
 app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*'); // Allowing all origins (not recommended for production)
@@ -41,7 +41,6 @@ function AppDateManagement() {
     nextDay.setHours(0, 0, 0, 0);
     const timeUntilNextDay = nextDay.getTime() - currentDate.getTime();
     setInterval(() => {
-        // console.log("This will be printed once a day");
         Object.values(db.users).forEach((user) => {
             const recentStat = user.sendStats[user.sendStats.length - 1];
             recentStat.data = nextDay;
@@ -82,7 +81,6 @@ app.delete('/khats/resetDatastore', async (req, res) => {
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// if (!db.files) db.files = {};
 const upload = multer({ storage: multer.memoryStorage() });
 const fs = require("fs");
 const bcrypt = require('bcrypt');
@@ -93,48 +91,52 @@ const getUserObjectFromEmail = (email) => {
     return db.users[email]
 }
 const getUserObjectFromToken = (token) => {
-    if (checkTokenValid(token) === false) {
+    // if (checkTokenValid(token) === false) {
+    //     console.log('exiting here, invalid token', token);
+    //     return null
+    // }
+    // for (elm of db.sessions) {
+    //     if (elm.token === token) {
+    //         return db.users[elm.email];
+    //     }
+    // }
+    if (!db.sessions[token]) {
         console.log('exiting here, invalid token', token);
         return null
     }
-    for (elm of db.sessions) {
-        if (elm.token === token) {
-            return db.users[elm.email];
-        }
-    }
-    return null
+    const email = db.sessions[token].email;
+    return db.users[email];
 }
-const checkTokenValid = (token) => {
-    const remove = [];
-    
-    let valid = false;
-    const currentTime = new Date();
-    console.log('the current time', currentTime)
-    const renewedTime = new Date(currentTime.getTime() + (30 * 60 * 1000))
-    console.log('the renewed time', renewedTime)
-    for (elm of db.sessions) {
+// const checkTokenValid = (token) => {
+//     // const remove = [];
+//     // let valid = false;
+//     const currentTime = new Date();
+//     console.log('the current time', currentTime)
+//     const renewedTime = new Date(currentTime.getTime() + (30 * 60 * 1000))
+//     console.log('the renewed time', renewedTime)
+//     for (elm of db.sessions) {
         
-        let expiryTime = new Date(elm.expires)
-        console.log(expiryTime)
-        if (expiryTime < currentTime) {
-            remove.push(db.sessions.indexOf(elm));
-        }
-        if (expiryTime >= currentTime && elm.token === token) {
-            // elm.expires = renewedTime;
-            console.log(expiryTime)
-            // elm.expires = renewedTime;
-            db.sessions[db.sessions.indexOf(elm)] = elm;
+//         let expiryTime = new Date(elm.expires)
+//         console.log(expiryTime)
+//         if (expiryTime < currentTime) {
+//             remove.push(db.sessions.indexOf(elm));
+//         }
+//         if (expiryTime >= currentTime && elm.token === token) {
+//             // elm.expires = renewedTime;
+//             console.log(expiryTime)
+//             // elm.expires = renewedTime;
+//             db.sessions[db.sessions.indexOf(elm)] = elm;
             
-            valid = true;
-        }
-    }
-    remove.forEach((idx) => {
-        console.log('removing ', db.sessions[idx])
-        db.sessions.splice(idx, 1)
-    });
-    save();
-    return valid;
-}
+//             valid = true;
+//         }
+//     }
+//     remove.forEach((idx) => {
+//         console.log('removing ', db.sessions[idx])
+//         db.sessions.splice(idx, 1)
+//     });
+//     save();
+//     return valid;
+// }
 
 
 const validateEmail = (email) => {
@@ -356,9 +358,8 @@ const register = (nameFirst, nameLast, email, phone, password1, password2) => {
         const userSession = {
             "email": email,
             "token": uuidv4(),
-            "expires": new Date((new Date()).getTime() + 30 * 60 * 1000)
         }
-        db.sessions.push(userSession);
+        db.sessions[userSession.token] = userSession;
         save();
         return {"status": 200, "token": userSession.token};
     }));
@@ -374,10 +375,8 @@ const login = async (email, password) => {
         const userSession = {
             "email": email,
             "token": uuidv4(),
-            "expires": new Date((new Date()).getTime() + 30 * 60 * 1000)
-            // "expires": new Date((new Date()).getTime() + 24 * 60 * 60 * 1000)
         }
-        db.sessions.push(userSession);
+        db.sessions[userSession.token] = userSession;
         save();
         return {"status": 200, "token": userSession.token}
     } else {
@@ -386,17 +385,21 @@ const login = async (email, password) => {
 }
 
 const logout = (token) => {
-    let remove = -1;
-    for (session of db.sessions) {
-        if (session.token === token) {
-            remove = db.sessions.indexOf(session);
-        }
+    // let remove = -1;
+    // for (session of db.sessions) {
+    //     if (session.token === token) {
+    //         remove = db.sessions.indexOf(session);
+    //     }
+    // }
+    // if (remove === -1) {
+    //     return {"status": 400, "error": "Invalid token given, was never made or expired"}
+    // } else {
+    //     return {"status": 200, "error": "Logged out succesfully"}
+    // }
+    if (db.sessions[token]) {
+        delete db.sessions[token];
     }
-    if (remove === -1) {
-        return {"status": 400, "error": "Invalid token given, was never made or expired"}
-    } else {
-        return {"status": 200, "error": "Logged out succesfully"}
-    }
+    return {"status": 200, "message": "Logged out succesfully"}
 }
 
 
