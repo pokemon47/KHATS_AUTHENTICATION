@@ -6,6 +6,7 @@ const { DOMParser } = require('xmldom');
 const FormData = require('form-data');
 // const FormData = require('form-data');
 const app = express();
+// const fs = require('fs');
 // import { v4 as uuidv4 } from 'uuid';
 const { v4: uuidv4 } = require('uuid');
 // const port = 3001;
@@ -93,7 +94,7 @@ const getUserObjectFromEmail = (email) => {
 }
 const getUserObjectFromToken = (token) => {
     if (checkTokenValid(token) === false) {
-        console.log('exiting here, invalid token');
+        console.log('exiting here, invalid token', token);
         return null
     }
     for (elm of db.sessions) {
@@ -105,18 +106,30 @@ const getUserObjectFromToken = (token) => {
 }
 const checkTokenValid = (token) => {
     const remove = [];
+    
     let valid = false;
     const currentTime = new Date();
+    console.log('the current time', currentTime)
+    const renewedTime = new Date(currentTime.getTime() + (30 * 60 * 1000))
+    console.log('the renewed time', renewedTime)
     for (elm of db.sessions) {
+        
         let expiryTime = new Date(elm.expires)
+        console.log(expiryTime)
         if (expiryTime < currentTime) {
             remove.push(db.sessions.indexOf(elm));
         }
         if (expiryTime >= currentTime && elm.token === token) {
+            elm.expires = renewedTime;
+            console.log(expiryTime)
+            elm.expires = renewedTime;
+            db.sessions[db.sessions.indexOf(elm)] = elm;
+            
             valid = true;
         }
     }
     remove.forEach((idx) => {
+        console.log('removing ', db.sessions[idx])
         db.sessions.splice(idx, 1)
     });
     save();
@@ -154,8 +167,17 @@ app.get('/khats/getAllFileIds', async (req, res) => {
     if (!userCred) {
         return res.json({"status": 400, "error": "Invalid token given"});
     }
-    const fileIds = Object.keys(db.user.files)
+    const fileIds = Object.keys(userCred.files)
     return res.json({"status": 200, "fileIds": fileIds});
+})
+app.get('/khats/getAllFiles', async (req, res) => {
+    const { authorization } = req.headers;
+    const userCred = getUserObjectFromToken(authorization)
+    if (!userCred) {
+        return res.json({"status": 400, "error": "Invalid token given"});
+    }
+    const files = Object.values(userCred.files)
+    return res.json({"status": 200, "files": files});
 })
 app.get('/khats/getFile', async (req, res) => {
     const { authorization, fileId } = req.headers;
@@ -163,7 +185,7 @@ app.get('/khats/getFile', async (req, res) => {
     if (!userCred) {
         return res.json({"status": 400, "error": "Invalid token given"});
     }
-    const file = db.user.files[fileId]
+    const file = userCred.files[fileId]
     if (!file) {
         return res.json({"status": 400, "error": "File id does not match any files"});
     }
@@ -175,7 +197,7 @@ app.get('/khats/getFileContent', async (req, res) => {
     if (!userCred) {
         return res.json({"status": 400, "error": "Invalid token given"});
     }
-    const file = db.user.files[fileId]
+    const file = userCred.files[fileId]
     if (!file) {
         return res.json({"status": 400, "error": "File id does not match any files"});
     }
@@ -188,7 +210,7 @@ app.put('/khats/updateFile', async (req, res) => {
     if (!userCred) {
         return res.json({"status": 400, "error": "Invalid token given"});
     }
-    const file = db.user.files[fileId]
+    const file = userCred.files[fileId]
     if (!file) {
         return res.json({"status": 400, "error": "File id does not match any files"});
     }
@@ -197,7 +219,7 @@ app.put('/khats/updateFile', async (req, res) => {
         originalname: 'invoice.xml',
         encoding: 'utf-8',
         mimetype: 'application/xml',
-        buffer: Buffer.from(req.body.invoiceData),
+        content: req.body.invoiceData,
     };
     saveFile(userCred.email, newFile, false);
     return res.json({"status": 200, "message": "successfully updated the file"});
@@ -287,7 +309,7 @@ const eggsLoginCall = async (userName, password) => {
     } 
 }
 
-const register = (nameFirst, nameLast, email, phone, password1, password2, isCustomer) => {
+const register = (nameFirst, nameLast, email, phone, password1, password2) => {
     const username = uuidv4();
     console.log('got called to register');
     if (password1 !== password2) {
@@ -324,7 +346,6 @@ const register = (nameFirst, nameLast, email, phone, password1, password2, isCus
             "passwordHash": callResults[2],
             "boostToken": callResults[0].token,
             "eggsUId": callResults[1].uid,
-            "isCustomer": isCustomer,
             "files": {},
             "madeOn": accountCreationDate,
             "sendStats": [{ "date": accountCreationDate, "revenue": 0 }]
@@ -354,6 +375,7 @@ const login = async (email, password) => {
             "email": email,
             "token": uuidv4(),
             "expires": new Date((new Date()).getTime() + 30 * 60 * 1000)
+            // "expires": new Date((new Date()).getTime() + 24 * 60 * 60 * 1000)
         }
         db.sessions.push(userSession);
         save();
@@ -387,8 +409,8 @@ app.get('/', (req, res) => {
 });
 
 app.post('/khats/auth/register', async (req, res) => {
-    const { nameFirst, nameLast, email, number, password1, password2, isCustomer } = req.body;
-    return res.json(await register(nameFirst, nameLast, email, number, password1, password2, isCustomer));
+    const { nameFirst, nameLast, email, number, password1, password2 } = req.body;
+    return res.json(await register(nameFirst, nameLast, email, number, password1, password2 ));
 });
 
 app.post('/khats/auth/login', async (req, res) => {
@@ -425,10 +447,65 @@ app.get('/khats/auth/checkToken', async (req, res) => {
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////// RENDERING /////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// app.post('/khats/renderInvoice', async (req, res) => {
+//     const { authorization } = req.headers;
+//     const fileId = req.body.fileId
+//     // console.log( authorization, fileId)
+//     const userCred = getUserObjectFromToken(authorization)
+//     console.log(userCred);
+//     if (!userCred) {
+//         return res.json({"status": 400, "error": "Invalid token given"});
+//     }
+//     const userObject = getUserObjectFromToken(authorization);
+//     const file = userObject.files[fileId].file
+//     const PDFURL = await renderFile(file, userCred.boostToken)
+//     return res.json({"status": 200, "url": PDFURL});
+// })
+// const renderFile = async (file, boostToken) => {
+//     const formData = new FormData();
+//     formData.append("outputType", "PDF");
+//     formData.append("language", "en");
+//     formData.append("token", boostToken);
+//     formData.append('file', file.buffer, {
+//         filename: file.originalname,
+//         contentType: file.mimetype
+//     });
+//     console.log(file);
+//     const requestOptions = {
+//         method: "POST",
+//         body: formData,
+//         redirect: "follow"
+//     };
+    
+//     try {
+//         const response = await fetch("http://rendering.ap-southeast-2.elasticbeanstalk.com/render", requestOptions);
+//         const result_1 = await response.json();
+//         if (result_1.error) {
+//             console.log('There was an error getting the results');
+//             console.log(result_1.error);
+//         }
+//         console.log('The pdf link ', result_1.PDFURL);
+//         return (result_1.PDFURL);
+//     } catch (error) {
+//         return console.error(error);
+//     }
+// }
+const writeFileAsync = (fileName, data) => {
+    return new Promise((resolve, reject) => {
+        fs.writeFile(fileName, data, { encoding: "utf8" }, (err) => {
+            if (err) {
+                reject(err);
+            } else {
+                console.log("File written successfully\n");
+                resolve();
+            }
+        });
+    });
+};
 app.post('/khats/renderInvoice', async (req, res) => {
     const { authorization } = req.headers;
-    const fileId = req.body.fileId
-    // console.log( authorization, fileId)
+    const { fileId }= req.body
+    console.log( authorization, fileId)
     const userCred = getUserObjectFromToken(authorization)
     console.log(userCred);
     if (!userCred) {
@@ -436,25 +513,32 @@ app.post('/khats/renderInvoice', async (req, res) => {
     }
     const userObject = getUserObjectFromToken(authorization);
     const file = userObject.files[fileId].file
-    const PDFURL = await renderFile(file, userCred.boostToken)
-    return res.json({"status": 200, "url": PDFURL});
+
+    // const PDFURL = await renderFile(file, userCred.boostToken)
+    // return res.json({"status": 200, "url": PDFURL});
+    writeFileAsync("render.xml", file.content)
+    .then(() => {
+        return renderFile(file, userCred.boostToken);
+    })
+    .then((PDFURL) => {
+        // Now you can proceed with the rest of your code
+        return res.json({"status": 200, "url": PDFURL});
+    })
+    .catch((error) => {
+        console.error("Error writing file:", error);
+    });
 })
 const renderFile = async (file, boostToken) => {
     const formData = new FormData();
-    // formData.append("file", file);
-    // const userObject = getUserObjectFromToken(ourtoken);
-    // console.log('render ', userObject);
-    // const file = userObject.files[fileId].file
-    // console.log(file);
-    // formData.append("file", file);
-    formData.append('file', file.buffer, {
-        filename: file.originalname,
-        contentType: file.mimetype
-    });
     formData.append("outputType", "PDF");
     formData.append("language", "en");
     formData.append("token", boostToken);
-    
+    // formData.append('file', file.buffer, {
+    //     filename: file.originalname,
+    //     contentType: file.mimetype
+    // });
+    formData.append('file', fs.createReadStream('./render   .xml'))
+    console.log(file);
     const requestOptions = {
         method: "POST",
         body: formData,
@@ -474,7 +558,6 @@ const renderFile = async (file, boostToken) => {
         return console.error(error);
     }
 }
-
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////// SENDING /////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -485,8 +568,14 @@ app.post('/khats/sendMultiple', upload.single('file'), async (req, res) => {
     if (!userCred) {
         return res.json({"status": 400, "error": "Invalid token given"});
     }
-    const { recipient, xmlFiles } = req.body;
-    const response = await sendMultipleInvoiceEmails(userCred.username, recipient, xmlFiles)
+    const fileObjects = []
+    const { recipient, fileIds } = req.body;
+    console.log(recipient, fileIds)
+    for (const fileId of fileIds) {
+        const file = userCred.files[fileId].file
+        fileObjects.push({"xmlString": file.content, "filename": file.originalname})
+    }
+    const response = await sendMultipleInvoiceEmails(`${userCred.nameFirst} ${userCred.nameLast}`, recipient, fileObjects)
     return res.json({"status": 200, "response": response});
 })
 const sendMultipleInvoiceEmails = async (senderUserName, recipientEmails, fileObjects) => {
@@ -580,6 +669,7 @@ const totalValue = (file) => {
     });
 }
 function getFileContent(file) {
+    console.log(file);
     return new Promise((resolve, reject) => {
         const content = file.buffer.toString('utf8');
         resolve({"xmlString": content, "filename": file.originalname});
@@ -623,14 +713,27 @@ function createInvoice(invoiceData, userCred) {
     .then(async (result) => {
         // console.log(result)
         const multerFile = {
-            fieldname: 'xml_file',
             originalname: 'invoice.xml',
             encoding: 'utf-8',
             mimetype: 'application/xml',
-            buffer: Buffer.from(result),
+            content: result,
         };
         saveFile(userCred.email, multerFile, false)
         console.log('added to the datastore successfully');
     })
     .catch((error) => console.error(error));
 }
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////// validation ///////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// app.post('/khats/validateInvoice', async (req, res) => {
+//     const { authorization } = req.headers;
+//     const userCred = getUserObjectFromToken(authorization)
+//     if (!userCred) {
+//         return res.json({"status": 400, "error": "Invalid token given"});
+//     }
+//     const { invoiceData } = req.body;
+//     // const response = await sendInvoiceEmailLaterV2(userCred.username, recipient, xmlFiles, delayInMinutes)
+//     createInvoice(invoiceData, userCred);
+//     return res.json({"status": 200, "message": "successfully created and added a new invoice"});
+// })
