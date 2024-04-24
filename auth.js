@@ -120,7 +120,7 @@ const checkTokenValid = (token) => {
             remove.push(db.sessions.indexOf(elm));
         }
         if (expiryTime >= currentTime && elm.token === token) {
-            elm.expires = renewedTime;
+            // elm.expires = renewedTime;
             console.log(expiryTime)
             elm.expires = renewedTime;
             db.sessions[db.sessions.indexOf(elm)] = elm;
@@ -201,8 +201,8 @@ app.get('/khats/getFileContent', async (req, res) => {
     if (!file) {
         return res.json({"status": 400, "error": "File id does not match any files"});
     }
-    const fileContent = await getFileContent(file)
-    return res.json({"status": 200, "fileContent": fileContent});
+    // const fileContent = await getFileContent(file)
+    return res.json({"status": 200, "fileContent": file.file.content});
 })
 app.put('/khats/updateFile', async (req, res) => {
     const { authorization, fileId } = req.headers;
@@ -573,6 +573,7 @@ app.post('/khats/sendMultiple', upload.single('file'), async (req, res) => {
     console.log(recipient, fileIds)
     for (const fileId of fileIds) {
         const file = userCred.files[fileId].file
+        addToSendStats(userCred.email, file.content)
         fileObjects.push({"xmlString": file.content, "filename": file.originalname})
     }
     const response = await sendMultipleInvoiceEmails(`${userCred.nameFirst} ${userCred.nameLast}`, recipient, fileObjects)
@@ -640,34 +641,43 @@ const sendInvoiceEmailLaterV2 = async (senderUserName, recipientEmail, fileConte
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-app.post('/khats/taxExclusive', upload.array('files'), async (req, res) => {
+app.get('/khats/getRevenue', upload.array('files'), async (req, res) => {
     const { authorization } = req.headers;
     const userCred = getUserObjectFromToken(authorization)
     console.log(userCred);
     if (!userCred) {
         return res.json({"status": 400, "error": "Invalid token given"});
     }
-    for (const file of req.files) {
-        totalValue(file);
-    }
-    return res.json({"status": 200, "message": "testing"});
+    // for (const file of req.files) {
+    //     totalValue(file);
+    // }
+    return res.json({"status": 200, "data": userCred.sendStats});
 })
 
-const totalValue = (file) => {
-    getFileContent(file)
-    .then(result => {
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(result.xmlString, "text/xml");
-        const taxExclusiveAmount = xmlDoc.getElementsByTagName("cbc:TaxExclusiveAmount")[0].textContent;
-        const taxInclusiveAmount = xmlDoc.getElementsByTagName("cbc:TaxInclusiveAmount")[0].textContent;
-        console.log("Tax exclusive amount:", taxExclusiveAmount);
-        console.log("Tax Amount:", (taxInclusiveAmount - taxExclusiveAmount) + '');
-        console.log("Tax inclusive amount:", taxInclusiveAmount);
-    })
-    .catch(error => {
-        console.error("Error:", error);
-    });
+const getTaxExclusiveValue = (xmlString) => {
+    const parser = new DOMParser();
+    const xmlDoc = parser.parseFromString(xmlString, 'text/xml');
+    const taxExclusiveAmountNode = xmlDoc.querySelector('cbc\\:TaxExclusiveAmount');
+    const taxExclusiveAmountValue = taxExclusiveAmountNode.textContent
+    return taxExclusiveAmountValue;
 }
+
+// const totalValue = (file) => {
+//     return getFileContent(file)
+//     .then(result => {
+//         const parser = new DOMParser();
+//         const xmlDoc = parser.parseFromString(result.xmlString, "text/xml");
+//         const taxExclusiveAmount = xmlDoc.getElementsByTagName("cbc:TaxExclusiveAmount")[0].textContent;
+//         const taxInclusiveAmount = xmlDoc.getElementsByTagName("cbc:TaxInclusiveAmount")[0].textContent;
+//         console.log("Tax exclusive amount:", taxExclusiveAmount);
+//         console.log("Tax Amount:", (taxInclusiveAmount - taxExclusiveAmount) + '');
+//         console.log("Tax inclusive amount:", taxInclusiveAmount);
+//         return taxExclusiveAmount;
+//     })
+//     .catch(error => {
+//         console.error("Error:", error);
+//     });
+// }
 function getFileContent(file) {
     console.log(file);
     return new Promise((resolve, reject) => {
@@ -676,7 +686,8 @@ function getFileContent(file) {
     });
 }
 
-function addToSendStats(email, amount) {
+function addToSendStats(email, fileContent) {
+    const amount = getTaxExclusiveValue(fileContent);
     const userObject = db.users[email];
     userObject.sendStats[userObject.sendStats.length - 1].revenue += amount;
     db.users[email] = userObject;
