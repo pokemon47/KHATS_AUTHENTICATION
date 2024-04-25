@@ -69,7 +69,7 @@ app.put('/khats/forceData/sendStats', async (req, res) => {
     if (getUserObjectFromEmail(email) === null) {
         return {"status": 400, "error": "The email given is not a registered email"}
     }
-    db.users[userObject.email].sendStats = sendStatsArr;
+    db.users[email].sendStats = sendStatsArr;
     save()
     return res.json({"status": 200, "message": "Successfully forced sensStats data"});
 });
@@ -100,6 +100,9 @@ const getUserObjectFromToken = (token) => {
     //         return db.users[elm.email];
     //     }
     // }
+    const string = "hey there"
+    console.log(string, token);
+    // console.log(db.sessions[token]);
     if (!db.sessions[token]) {
         console.log('exiting here, invalid token', token);
         return null
@@ -157,9 +160,11 @@ const saveFile = (email, file, isValidated) => {
         id:  uuidv4(),
         file,
         isValidated,
+        originalName: file.originalname,
         sentTo : [],
         madeOn : new Date(),
     }
+    console.log('saving the file', newFile)
     db.users[email].files[newFile.id] = newFile;
     save();
 }
@@ -180,6 +185,16 @@ app.get('/khats/getAllFiles', async (req, res) => {
     }
     const files = Object.values(userCred.files)
     return res.json({"status": 200, "files": files});
+})
+app.get('/khats/getAllFilesData', async (req, res) => {
+    const { authorization } = req.headers;
+    const userCred = getUserObjectFromToken(authorization)
+    if (!userCred) {
+        return res.json({"status": 400, "error": "Invalid token given"});
+    }
+    const filesData = Object.values(userCred.files).map(({ id, isValidated, originalName }) => ({ id, isValidated, originalName }));
+    const filesDataReversed = filesData.slice().reverse()
+    return res.json({"status": 200, "files": filesDataReversed });
 })
 app.get('/khats/getFile', async (req, res) => {
     const { authorization, fileId } = req.headers;
@@ -217,8 +232,7 @@ app.put('/khats/updateFile', async (req, res) => {
         return res.json({"status": 400, "error": "File id does not match any files"});
     }
     const newFile = {
-        fieldname: 'xml_file',
-        originalname: 'invoice.xml',
+        ...file,
         encoding: 'utf-8',
         mimetype: 'application/xml',
         content: req.body.invoiceData,
@@ -349,7 +363,7 @@ const register = (nameFirst, nameLast, email, phone, password1, password2) => {
             "boostToken": callResults[0].token,
             "eggsUId": callResults[1].uid,
             "files": {},
-            "madeOn": accountCreationDate,
+            "creationMadeOn": accountCreationDate,
             "sendStats": [{ "date": accountCreationDate, "revenue": 0 }]
         };
         console.log(userCreds);
@@ -450,49 +464,6 @@ app.get('/khats/auth/checkToken', async (req, res) => {
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////// RENDERING /////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// app.post('/khats/renderInvoice', async (req, res) => {
-//     const { authorization } = req.headers;
-//     const fileId = req.body.fileId
-//     // console.log( authorization, fileId)
-//     const userCred = getUserObjectFromToken(authorization)
-//     console.log(userCred);
-//     if (!userCred) {
-//         return res.json({"status": 400, "error": "Invalid token given"});
-//     }
-//     const userObject = getUserObjectFromToken(authorization);
-//     const file = userObject.files[fileId].file
-//     const PDFURL = await renderFile(file, userCred.boostToken)
-//     return res.json({"status": 200, "url": PDFURL});
-// })
-// const renderFile = async (file, boostToken) => {
-//     const formData = new FormData();
-//     formData.append("outputType", "PDF");
-//     formData.append("language", "en");
-//     formData.append("token", boostToken);
-//     formData.append('file', file.buffer, {
-//         filename: file.originalname,
-//         contentType: file.mimetype
-//     });
-//     console.log(file);
-//     const requestOptions = {
-//         method: "POST",
-//         body: formData,
-//         redirect: "follow"
-//     };
-    
-//     try {
-//         const response = await fetch("http://rendering.ap-southeast-2.elasticbeanstalk.com/render", requestOptions);
-//         const result_1 = await response.json();
-//         if (result_1.error) {
-//             console.log('There was an error getting the results');
-//             console.log(result_1.error);
-//         }
-//         console.log('The pdf link ', result_1.PDFURL);
-//         return (result_1.PDFURL);
-//     } catch (error) {
-//         return console.error(error);
-//     }
-// }
 const writeFileAsync = (fileName, data) => {
     return new Promise((resolve, reject) => {
         fs.writeFile(fileName, data, { encoding: "utf8" }, (err) => {
@@ -517,8 +488,6 @@ app.post('/khats/renderInvoice', async (req, res) => {
     const userObject = getUserObjectFromToken(authorization);
     const file = userObject.files[fileId].file
 
-    // const PDFURL = await renderFile(file, userCred.boostToken)
-    // return res.json({"status": 200, "url": PDFURL});
     writeFileAsync("render.xml", file.content)
     .then(() => {
         return renderFile(file, userCred.boostToken);
@@ -536,11 +505,7 @@ const renderFile = async (file, boostToken) => {
     formData.append("outputType", "PDF");
     formData.append("language", "en");
     formData.append("token", boostToken);
-    // formData.append('file', file.buffer, {
-    //     filename: file.originalname,
-    //     contentType: file.mimetype
-    // });
-    formData.append('file', fs.createReadStream('./render   .xml'))
+    formData.append('file', fs.createReadStream('./render.xml'))
     console.log(file);
     const requestOptions = {
         method: "POST",
@@ -549,7 +514,9 @@ const renderFile = async (file, boostToken) => {
     };
     
     try {
+        console.log('start of the try block');
         const response = await fetch("http://rendering.ap-southeast-2.elasticbeanstalk.com/render", requestOptions);
+        console.log(response);
         const result_1 = await response.json();
         if (result_1.error) {
             console.log('There was an error getting the results');
@@ -660,8 +627,10 @@ app.get('/khats/getRevenue', upload.array('files'), async (req, res) => {
 const getTaxExclusiveValue = (xmlString) => {
     const parser = new DOMParser();
     const xmlDoc = parser.parseFromString(xmlString, 'text/xml');
-    const taxExclusiveAmountNode = xmlDoc.querySelector('cbc\\:TaxExclusiveAmount');
-    const taxExclusiveAmountValue = taxExclusiveAmountNode.textContent
+    
+    let taxExclusiveAmountValue = xmlDoc.getElementsByTagName("cbc:TaxExclusiveAmount")[0].textContent;
+    taxExclusiveAmountValue = parseInt(taxExclusiveAmountValue);
+    console.log(typeof taxExclusiveAmountValue);
     return taxExclusiveAmountValue;
 }
 
@@ -692,7 +661,8 @@ function getFileContent(file) {
 function addToSendStats(email, fileContent) {
     const amount = getTaxExclusiveValue(fileContent);
     const userObject = db.users[email];
-    userObject.sendStats[userObject.sendStats.length - 1].revenue += amount;
+    let revenueNumber = parseInt(userObject.sendStats[userObject.sendStats.length - 1].revenue)
+    userObject.sendStats[userObject.sendStats.length - 1].revenue = revenueNumber + amount;
     db.users[email] = userObject;
     save();
 }
@@ -705,13 +675,13 @@ app.post('/khats/createInvoice', async (req, res) => {
     if (!userCred) {
         return res.json({"status": 400, "error": "Invalid token given"});
     }
-    const { invoiceData } = req.body;
+    const { invoiceData, invoiceName } = req.body;
     // const response = await sendInvoiceEmailLaterV2(userCred.username, recipient, xmlFiles, delayInMinutes)
-    createInvoice(invoiceData, userCred);
+    createInvoice(invoiceData, userCred, invoiceName);
     return res.json({"status": 200, "message": "successfully created and added a new invoice"});
 })
 
-function createInvoice(invoiceData, userCred) {
+function createInvoice(invoiceData, userCred, invoiceName) {
     const raw = JSON.stringify(invoiceData);
     const requestOptions = {
         method: "POST",
@@ -727,7 +697,7 @@ function createInvoice(invoiceData, userCred) {
     .then(async (result) => {
         // console.log(result)
         const multerFile = {
-            originalname: 'invoice.xml',
+            originalname: invoiceName,
             encoding: 'utf-8',
             mimetype: 'application/xml',
             content: result,
@@ -740,14 +710,73 @@ function createInvoice(invoiceData, userCred) {
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////// validation ///////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// app.post('/khats/validateInvoice', async (req, res) => {
-//     const { authorization } = req.headers;
-//     const userCred = getUserObjectFromToken(authorization)
-//     if (!userCred) {
-//         return res.json({"status": 400, "error": "Invalid token given"});
-//     }
-//     const { invoiceData } = req.body;
-//     // const response = await sendInvoiceEmailLaterV2(userCred.username, recipient, xmlFiles, delayInMinutes)
-//     createInvoice(invoiceData, userCred);
-//     return res.json({"status": 200, "message": "successfully created and added a new invoice"});
-// })
+app.post('/khats/validateInvoice', upload.single('file'), async (req, res) => {
+    const { authorization } = req.headers;
+    const userCred = getUserObjectFromToken(authorization)
+    if (!userCred) {
+        return res.json({"status": 400, "error": "Invalid token given"});
+    }
+    const responsePromise = validateInvoice(req.file)
+    responsePromise.then((response) => {
+        console.log('the response ', response);
+        if (!response) {
+            console.log(response)
+            return res.json({"status": 400, "error": "Malformed request. Could not parse body as XML."});
+        } else {
+            return res.json({"status": 200, "url": response});
+
+        }
+    })
+
+})
+
+const validateInvoice = (file) => {
+    // formData.append('file', file)
+    return getFileContent(file).then((fileData) => {
+        // console.log(fileData)
+        console.log('got the file data')
+        return fetch("https://adica.netlify.app/v2/validate?format=pdf&selfbilling=false", {
+            method: 'POST',
+            headers: {
+                'Content-type': 'application/xml' 
+            },
+            body: fileData.xmlString
+        })
+        .then((response) => {
+            console.log('middle response', response)
+            return response.json()
+        })
+        .then((result) => {
+            console.log('the result from adica', result)
+            if (!result.url) {
+                return null
+            } else {
+                return result.url
+            }
+        })
+    })
+    // const requestOptionPost = {
+    //     method: "POST",
+    //     body: formData,
+    //     redirect: "follow"
+    // };
+
+    // try {
+    //     const response = await fetch("http://asish.alwaysdata.net/invoice-validator/upload-invoice", requestOptionPost);
+    //     const result_1 = await response.json();
+    //     if (result_1.error) {
+    //         console.log('There was an error getting the results');
+    //         console.log(result_1.error);
+    //         return result_1.error;
+    //     }
+    //     const validationResponse = await fetch("http://asish.alwaysdata.net/invoice-validator/upload-invoice",
+    //     {
+    //         method: ""
+    //     }
+    //   //   console.log('Got the results successfully ', token);
+    //   //   console.log('The pdf link ', result_1.PDFURL);
+    //     // return (result_1.PDFURL);
+    // } catch (error) {
+    //     return console.error(error);
+    // }
+}
